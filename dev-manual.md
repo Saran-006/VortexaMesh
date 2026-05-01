@@ -399,11 +399,12 @@ VortexaMesh is designed to be extended without modifying its core. Here are the 
 
 ## 12. Example Code
 
-You can find full implementation examples by navigating to:
-`file → examples → MeshFramework → basic_mesh` in the Arduino Cloud IDE.
+The framework includes 4 progressive examples covering all integration modes. You can find them by navigating to `File → Examples → MeshFramework` in the Arduino IDE, or locally in the `./examples/` directory:
 
-Alternatively, you can locate it locally at:
-`./examples/basic_mesh.ino`
+1. **`01_minimal_node`** — The absolute bare minimum code to join a network. Zero config.
+2. **`02_direct_api`** — How to use the high-performance programmatic API directly (`sendUDP`, `sendTCP`, `getNodeHash`).
+3. **`03_programmatic_cli`** — How to pass commands to the built-in terminal from code and capture the `String` output (useful for Web UIs/dashboards).
+4. **`04_serial_cli`** — A fully interactive mesh terminal showcasing remote control (LED toggling) and the modern, sugar-coated event API.
 
 ---
 
