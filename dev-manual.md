@@ -300,12 +300,20 @@ Serial.print(output); // Returns formatted node list as a string
 ### Mode 3: Direct API Function Calls (Recommended)
 The fastest, most efficient method. All functions return typed statuses.
 
-> **How to get `targetHash`:** Every node advertises itself on boot. Subscribe to `onNodeDiscovered` to capture a peer's hash before sending:
+> **How to get `targetHash`:** Use `getNodeHash(index, outHash)` to look up any peer by index from the live registry — same data the `ls` command uses internally:
 > ```cpp
-> uint8_t targetHash[16] = {0};
-> meshNode.onNodeDiscovered([](const mesh::Node& node) {
->     memcpy(targetHash, node.node_hash, 16); // store it for use below
-> });
+> uint8_t targetHash[16];
+> if (meshNode.getNodeHash(0, targetHash)) {
+>     // index 0 = first discovered peer
+>     meshNode.sendUDP(targetHash, (uint8_t*)"Hello", 5);
+> }
+>
+> // Or iterate all known peers:
+> mesh::Node peers[64];
+> int count = meshNode.getNodes(peers, 64);
+> for (int i = 0; i < count; i++) {
+>     // peers[i].node_hash, .mac, .lat, .lon, .last_seen
+> }
 > ```
 
 ```cpp
