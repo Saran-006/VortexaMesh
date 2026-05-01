@@ -401,10 +401,10 @@ VortexaMesh is designed to be extended without modifying its core. Here are the 
 
 The framework includes 4 progressive examples covering all integration modes. You can find them in the `./examples/` directory:
 
-1. **`01_minimal_node.ino`** — The absolute bare minimum code to join a network. Zero config.
-2. **`02_direct_api.ino`** — How to use the high-performance programmatic API directly (`sendUDP`, `sendTCP`, `getNodeHash`).
-3. **`03_programmatic_cli.ino`** — How to pass commands to the built-in terminal from code and capture the `String` output (useful for Web UIs/dashboards).
-4. **`basic_mesh.ino`** — A fully interactive mesh terminal showcasing remote control (LED toggling) and the modern, sugar-coated event API.
+1. **`01_minimal_node`** — The absolute bare minimum code to join a network. Zero config.
+2. **`02_direct_api`** — How to use the high-performance programmatic API directly (`sendUDP`, `sendTCP`, `getNodeHash`).
+3. **`03_programmatic_cli`** — How to pass commands to the built-in terminal from code and capture the `String` output (useful for Web UIs/dashboards).
+4. **`basic_mesh`** — A fully interactive mesh terminal showcasing remote control (LED toggling) and the modern, sugar-coated event API.
 
 ---
 
