@@ -11,10 +11,8 @@ static const char* TAG = "Router";
 
 namespace mesh {
 
-DirectionalRouter::DirectionalRouter(NodeRegistry* registry, float angleThreshold,
-                                     float distanceTolerance)
-    : registry_(registry), angleThreshold_(angleThreshold),
-      distanceTolerance_(distanceTolerance) {}
+DirectionalRouter::DirectionalRouter(NodeRegistry* registry, float angleThreshold, float progressThreshold)
+    : registry_(registry), angleThreshold_(angleThreshold), progressThreshold_(progressThreshold) {}
 
 float DirectionalRouter::distanceM(float lat1, float lon1, float lat2, float lon2) {
     constexpr float R = 6371000.0f; // Earth radius in meters
@@ -61,8 +59,9 @@ bool DirectionalRouter::selectNextHop(const Packet& pkt, const Node& self,
     float distToDest = distanceM(self.lat, self.lon,
                                  pkt.header.dest_lat, pkt.header.dest_lon);
 
-    Node nodes[MAX_NODES];
-    int count = registry_->getAll(nodes, MAX_NODES);
+    int maxNodes = registry_->capacity();
+    Node* nodes = new Node[maxNodes];
+    int count = registry_->getAll(nodes, maxNodes);
 
     float bestScore = 1e9f;
     int bestIdx = -1;
@@ -87,10 +86,18 @@ bool DirectionalRouter::selectNextHop(const Packet& pkt, const Node& self,
         float peerDistToDest = distanceM(nodes[i].lat, nodes[i].lon,
                                          pkt.header.dest_lat, pkt.header.dest_lon);
 
-        // Distance tolerance: peer should be closer to dest than we are (with tolerance)
-        if (peerDistToDest > distToDest + distanceTolerance_) continue;
+        // Progress check against original sender's distance to destination.
+        // This solves the dense-network problem where a large threshold blocks immediate neighbors.
+        if (pkt.header.source_dist > 0.0f) {
+            if (peerDistToDest > pkt.header.source_dist - progressThreshold_) continue;
+        } else {
+            // Fallback (no GPS lock at origin): enforce strict forward progress relative to current node.
+            // We ignore progressThreshold_ here because a 50m jump would fail in dense networks.
+            // This guarantees no backward flow while still allowing the packet to move forward.
+            if (peerDistToDest >= distToDest) continue;
+        }
 
-        // Score: lower is better. Prefer peers closer to destination and in-line.
+        // Score: lower is better. Prefer peers closest to destination.
         float score = peerDistToDest + aDiff * 10.0f;
 
         if (score < bestScore) {
@@ -103,9 +110,11 @@ bool DirectionalRouter::selectNextHop(const Packet& pkt, const Node& self,
         memcpy(outMac, nodes[bestIdx].mac, 6);
         LOG_INFO(TAG, "Next hop: %02X:%02X:%02X:%02X:%02X:%02X (score: %.1f)",
                  outMac[0], outMac[1], outMac[2], outMac[3], outMac[4], outMac[5], bestScore);
+        delete[] nodes;
         return true;
     }
 
+    delete[] nodes;
     return false;
 }
 
@@ -113,14 +122,16 @@ int DirectionalRouter::getFloodTargets(const Packet& pkt, const Node& self,
                                        uint8_t outMacs[][6], int maxOut) const {
     // If it's a blind broadcast, just flood to everyone
     if (pkt.header.routing_strategy == (uint8_t)RoutingStrategy::STRAT_BROADCAST) {
-        Node nodes[MAX_NODES];
-        int count = registry_->getAll(nodes, MAX_NODES);
+        int maxNodes = registry_->capacity();
+        Node* nodes = new Node[maxNodes];
+        int count = registry_->getAll(nodes, maxNodes);
         int idx = 0;
         for (int i = 0; i < count && idx < maxOut; i++) {
             if (memcmp(nodes[i].mac, pkt.header.last_hop_mac, 6) == 0) continue;
             memcpy(outMacs[idx], nodes[i].mac, 6);
             idx++;
         }
+        delete[] nodes;
         return idx;
     }
 
@@ -132,8 +143,9 @@ int DirectionalRouter::getFloodTargets(const Packet& pkt, const Node& self,
     float targetBearing = bearing(self.lat, self.lon, pkt.header.dest_lat, pkt.header.dest_lon);
     float distToDest = distanceM(self.lat, self.lon, pkt.header.dest_lat, pkt.header.dest_lon);
 
-    Node nodes[MAX_NODES];
-    int count = registry_->getAll(nodes, MAX_NODES);
+    int maxNodes = registry_->capacity();
+    Node* nodes = new Node[maxNodes];
+    int count = registry_->getAll(nodes, maxNodes);
     int idx = 0;
 
     for (int i = 0; i < count && idx < maxOut; i++) {
@@ -148,14 +160,19 @@ int DirectionalRouter::getFloodTargets(const Packet& pkt, const Node& self,
 
         float peerDistToDest = distanceM(nodes[i].lat, nodes[i].lon, pkt.header.dest_lat, pkt.header.dest_lon);
 
-        // Progress Check: peer MUST be closer to destination than we are
-        // This prevents the "border waste" the user mentioned
-        if (peerDistToDest > distToDest - distanceTolerance_) continue;
+        // Progress check against original sender's distance
+        if (pkt.header.source_dist > 0.0f) {
+            if (peerDistToDest > pkt.header.source_dist - progressThreshold_) continue;
+        } else {
+            // Fallback (no GPS lock at origin): strict forward progress
+            if (peerDistToDest >= distToDest) continue;
+        }
 
         memcpy(outMacs[idx], nodes[i].mac, 6);
         idx++;
     }
 
+    delete[] nodes;
     return idx;
 }
 

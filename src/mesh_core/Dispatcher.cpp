@@ -91,7 +91,14 @@ void Dispatcher::processPacket(Packet& pkt, bool isDuplicate) {
     }
 
     // --- Packet is for us ---
-    if (isForUs(pkt)) {
+    bool forUs = isForUs(pkt);
+    bool isBroadcast = false;
+    uint8_t zeros[16] = {};
+    if (memcmp(pkt.header.dest_hash, zeros, 16) == 0 && pkt.header.routing_strategy == (uint8_t)RoutingStrategy::STRAT_BROADCAST) {
+        isBroadcast = true;
+    }
+
+    if (forUs) {
         if (pkt.isControl()) {
             handleControl(pkt, isDuplicate);
         } else {
@@ -103,10 +110,13 @@ void Dispatcher::processPacket(Packet& pkt, bool isDuplicate) {
             sendAckFor(pkt);
         }
 
-        return;
+        // If it's uniquely for us (not a broadcast, not geo-flood continuing past us), we stop and don't forward.
+        if (!isBroadcast && pkt.header.routing_strategy != (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD) {
+            return;
+        }
     }
 
-    // --- Not for us: forward only if NOT a duplicate ---
+    // --- Not exclusively for us, or it's a broadcast/geo-flood: forward only if NOT a duplicate ---
     if (!isDuplicate) {
         forwardPacket(pkt);
     }
@@ -132,9 +142,24 @@ void Dispatcher::sendAckFor(const Packet& pkt) {
 }
 
 bool Dispatcher::isForUs(const Packet& pkt) const {
-    // Broadcast (all zeros dest_hash) is for everyone
     uint8_t zeros[16] = {};
-    if (memcmp(pkt.header.dest_hash, zeros, 16) == 0) return true;
+    if (memcmp(pkt.header.dest_hash, zeros, 16) == 0) {
+        // If it's a strict broadcast, it's for everyone
+        if (pkt.header.routing_strategy == (uint8_t)RoutingStrategy::STRAT_BROADCAST) return true;
+        
+        // If it's GEO_FLOOD, it's for us ONLY if we are within the destination radius
+        if (pkt.header.routing_strategy == (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD) {
+            if (ctx_->selfNode->hasLocation()) {
+                float dist = DirectionalRouter::distanceM(ctx_->selfNode->lat, ctx_->selfNode->lon, 
+                                                          pkt.header.dest_lat, pkt.header.dest_lon);
+                if (dist <= ctx_->config->geoDestinationRadiusM) return true;
+            }
+            return false;
+        }
+        
+        // Fallback for other zero-hash cases
+        return true; 
+    }
     return memcmp(pkt.header.dest_hash, ctx_->selfNode->node_hash, 16) == 0;
 }
 

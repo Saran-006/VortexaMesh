@@ -7,7 +7,7 @@ static const char* TAG = "PeerMgr";
 
 namespace mesh {
 
-PeerManager::PeerManager() : count_(0) {
+PeerManager::PeerManager() : count_(0), evictIndex_(0) {
     for (int i = 0; i < PEER_TABLE_MAX; i++) {
         peers_[i].active = false;
         memset(peers_[i].mac, 0, 6);
@@ -24,8 +24,8 @@ bool PeerManager::addPeer(const uint8_t mac[6]) {
         LOG_ERROR(TAG, "addPeer CRITICAL: mutex_ is NULL!");
         return false;
     }
-    LOG_INFO(TAG, "addPeer: taking mutex for %02X:%02X:%02X:%02X:%02X:%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    // LOG_INFO(TAG, "addPeer: taking mutex for %02X:%02X:%02X:%02X:%02X:%02X",
+    //          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     
     xSemaphoreTake(mutex_, portMAX_DELAY);
 
@@ -38,9 +38,18 @@ bool PeerManager::addPeer(const uint8_t mac[6]) {
     }
 
     if (count_ >= PEER_TABLE_MAX) {
-        LOG_WARN(TAG, "Peer table full, cannot add peer");
-        xSemaphoreGive(mutex_);
-        return false;
+        // Auto-eviction: remove the oldest physical peer to make room.
+        // This solves the ESP-NOW hard limit of 20 peers.
+        uint8_t evictMac[6];
+        memcpy(evictMac, peers_[evictIndex_].mac, 6);
+        esp_now_del_peer(evictMac);
+        peers_[evictIndex_].active = false;
+        count_--;
+        
+        LOG_INFO(TAG, "ESP-NOW physical limit reached. Evicted peer %02X:%02X:%02X:%02X:%02X:%02X",
+                 evictMac[0], evictMac[1], evictMac[2], evictMac[3], evictMac[4], evictMac[5]);
+        
+        evictIndex_ = (evictIndex_ + 1) % PEER_TABLE_MAX;
     }
 
     // Register with ESP-NOW

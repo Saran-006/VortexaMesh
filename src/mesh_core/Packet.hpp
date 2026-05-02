@@ -23,6 +23,13 @@ enum class RoutingStrategy : uint8_t {
     STRAT_BROADCAST = 2   // Universal flood (blind broadcast)
 };
 
+// ---- Priority ----
+enum class Priority : uint8_t {
+    PRIO_LOW    = 0,
+    PRIO_MEDIUM = 1,
+    PRIO_HIGH   = 2
+};
+
 // ---- Packed Packet Header ----
 struct __attribute__((packed)) PacketHeader {
     uint8_t  version;
@@ -43,6 +50,7 @@ struct __attribute__((packed)) PacketHeader {
 
     float    dest_lat;
     float    dest_lon;
+    float    source_dist; // Distance from original sender to destination
 };
 
 // Signature appended after payload

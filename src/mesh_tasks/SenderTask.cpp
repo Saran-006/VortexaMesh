@@ -57,11 +57,11 @@ void senderTaskFn(void* param) {
             bool found = false;
 
             // 1. Try cached route
-            if (ctx_->routeCache->lookupNextHop(pkt->header.dest_hash, destMac)) {
+            if (ctx->routeCache->lookupNextHop(pkt->header.dest_hash, destMac)) {
                 found = true;
             } else {
                 // 2. Try looking up in registry
-                const Node* destNode = ctx_->nodeRegistry->findByHash(pkt->header.dest_hash);
+                const Node* destNode = ctx->nodeRegistry->findByHash(pkt->header.dest_hash);
                 if (destNode) {
                     memcpy(destMac, destNode->mac, 6);
                     found = true;
@@ -69,38 +69,40 @@ void senderTaskFn(void* param) {
             }
 
             if (found) {
-                ctx_->peerManager->addPeer(destMac);
+                ctx->peerManager->addPeer(destMac);
                 size_t written = pkt->serialize(wireBuf, sizeof(wireBuf));
-                if (written > 0 && ctx_->transport->send(destMac, wireBuf, written)) {
+                if (written > 0 && ctx->transport->send(destMac, wireBuf, written)) {
                     onPacketSent(ctx, *pkt);
-                    if (pkt->isAckRequired()) ctx_->ackManager->trackPacket(*pkt, destMac);
+                    if (pkt->isAckRequired()) ctx->ackManager->trackPacket(*pkt, destMac);
                 }
             } else {
                 LOG_WARN(TAG, "Direct routing requested but no path found");
             }
-        } else {
-            // STRAT_GEO_FLOOD or STRAT_BROADCAST
-            uint8_t floodMacs[MAX_NODES][6];
-            int count = ctx_->router->getFloodTargets(*pkt, *ctx_->selfNode, floodMacs, MAX_NODES);
+        } else if (strategy == (uint8_t)RoutingStrategy::STRAT_BROADCAST) {
+            uint8_t bMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+            ctx->peerManager->addPeer(bMac);
+            size_t written = pkt->serialize(wireBuf, sizeof(wireBuf));
+            if (written > 0) ctx->transport->send(bMac, wireBuf, written);
             
-            if (count == 0 && strategy == (uint8_t)RoutingStrategy::STRAT_BROADCAST) {
-                // Last resort blind broadcast if registry is empty
-                uint8_t bMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-                ctx_->peerManager->addPeer(bMac);
+            onPacketSent(ctx, *pkt);
+        } else {
+            // STRAT_GEO_FLOOD
+            int maxNodes = ctx->nodeRegistry->capacity();
+            auto floodMacs = new uint8_t[maxNodes][6];
+            int count = ctx->router->getFloodTargets(*pkt, *ctx->selfNode, floodMacs, maxNodes);
+            
+            for (int i = 0; i < count; i++) {
+                ctx->peerManager->addPeer(floodMacs[i]);
                 size_t written = pkt->serialize(wireBuf, sizeof(wireBuf));
-                if (written > 0) ctx_->transport->send(bMac, wireBuf, written);
-            } else {
-                for (int i = 0; i < count; i++) {
-                    ctx_->peerManager->addPeer(floodMacs[i]);
-                    size_t written = pkt->serialize(wireBuf, sizeof(wireBuf));
-                    if (written > 0) ctx_->transport->send(floodMacs[i], wireBuf, written);
-                }
-                LOG_INFO(TAG, "Flood sent to %d peers (Strategy: %d)", count, strategy);
-                if (pkt->isAckRequired() && count > 0) {
-                    ctx_->ackManager->trackPacket(*pkt, floodMacs[0]);
-                }
+                if (written > 0) ctx->transport->send(floodMacs[i], wireBuf, written);
+            }
+            
+            if (count > 0) LOG_INFO(TAG, "Geo-Flood sent to %d peers", count);
+            if (pkt->isAckRequired() && count > 0) {
+                ctx->ackManager->trackPacket(*pkt, floodMacs[0]);
             }
             onPacketSent(ctx, *pkt);
+            delete[] floodMacs;
         }
         delete pkt;
     }

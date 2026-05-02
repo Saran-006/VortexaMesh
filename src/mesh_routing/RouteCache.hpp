@@ -11,12 +11,12 @@ namespace mesh {
 // we remember "to reach S, send to the MAC we received it from."
 // This enables responses to follow the same route back without flooding.
 
-static constexpr int ROUTE_CACHE_SIZE = 64;
+
 static constexpr int ROUTE_ENTRY_TTL_MS = 60000;  // 1 minute
 
 class RouteCache {
 public:
-    RouteCache();
+    explicit RouteCache(int maxRoutes);
     ~RouteCache();
 
     // Record: "packets from source_hash arrived via receivedFromMac"
@@ -25,6 +25,9 @@ public:
     // Lookup: "to reach destHash, which MAC should I send to?"
     // Returns true if a cached route exists.
     bool lookupNextHop(const uint8_t destHash[16], uint8_t outMac[6]) const;
+
+    // Remove all cached routes that use this MAC as the next hop
+    void removeByNextHop(const uint8_t nextHopMac[6]);
 
     // Remove stale entries
     void pruneStale(int64_t nowMs);
@@ -36,7 +39,9 @@ private:
         int64_t recordedAtMs;
         bool    active;
     };
-    RouteEntry         entries_[ROUTE_CACHE_SIZE];
+    RouteEntry*        entries_;
+    int                maxRoutes_;
+    int                head_;
     SemaphoreHandle_t  mutex_;
 };
 

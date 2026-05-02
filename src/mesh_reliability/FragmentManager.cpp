@@ -21,8 +21,8 @@ FragmentManager::~FragmentManager() {
 
 int FragmentManager::fragment(const uint8_t* sourceHash, const uint8_t* destHash,
                               const uint8_t* packetId, uint8_t flags, uint8_t priority,
-                              uint8_t strategy, float destLat, float destLon, uint8_t ttl,
-                              const uint8_t* payload, size_t payloadLen,
+                              uint8_t strategy, float destLat, float destLon, float sourceDist,
+                              uint8_t ttl, const uint8_t* payload, size_t payloadLen,
                               Packet* outPkts, int maxOut) {
     size_t maxChunk = MAX_SINGLE_PAYLOAD;
     int totalFragments = (payloadLen + maxChunk - 1) / maxChunk;
@@ -55,6 +55,7 @@ int FragmentManager::fragment(const uint8_t* sourceHash, const uint8_t* destHash
         outPkts[i].header.total_fragments = totalFragments;
         outPkts[i].header.dest_lat = destLat;
         outPkts[i].header.dest_lon = destLon;
+        outPkts[i].header.source_dist = sourceDist;
 
         size_t offset = i * maxChunk;
         size_t chunkLen = payloadLen - offset;

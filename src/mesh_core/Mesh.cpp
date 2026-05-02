@@ -73,13 +73,13 @@ void Mesh::init() {
     // Create subsystems
     transport_      = new ESPNOWTransport();
     peerManager_    = new PeerManager();
-    nodeRegistry_   = new NodeRegistry();
+    nodeRegistry_   = new NodeRegistry(config_.maxPeers);
     dedupCache_     = new DedupCache(config_.dedupSize);
     router_         = new DirectionalRouter(nodeRegistry_, config_.angleThreshold,
-                                            config_.distanceTolerance);
+                                            config_.geoProgressThresholdM);
     ackManager_     = new AckManager(config_.maxRetries, config_.retryBackoffMs);
     fragmentManager_ = new FragmentManager();
-    routeCache_     = new RouteCache();
+    routeCache_     = new RouteCache(config_.maxPeers);
     requestManager_ = new RequestManager();
 
     // Initialize event bus
@@ -147,20 +147,30 @@ bool Mesh::sendUDP(const uint8_t* destHash, const uint8_t* data, size_t len, boo
         uint8_t flags = FLAG_DATA | FLAG_ROUTE_RECORD;
         if (ackRequired) flags |= FLAG_ACK_REQUIRED;
 
-        float dLat = 0, dLon = 0;
+        float dLat = 0, dLon = 0, sourceDist = 0.0f;
         const Node* n = nodeRegistry_->findByHash(destHash);
-        if (n) { dLat = n->lat; dLon = n->lon; }
+        if (n) { 
+            dLat = n->lat; dLon = n->lon; 
+            if (selfNode_.hasLocation()) {
+                sourceDist = DirectionalRouter::distanceM(selfNode_.lat, selfNode_.lon, dLat, dLon);
+            }
+        }
+
+        bool isBroadcast = true;
+        for (int i=0; i<16; i++) { if (destHash[i] != 0) { isBroadcast = false; break; } }
 
         uint8_t cachedMac[6];
         uint8_t strat = (uint8_t)RoutingStrategy::STRAT_BROADCAST;
-        if (routeCache_->lookupNextHop(destHash, cachedMac)) {
-            strat = (uint8_t)RoutingStrategy::STRAT_DIRECT;
-        } else if (dLat != 0.0f) {
-            strat = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
+        if (!isBroadcast) {
+            if (routeCache_->lookupNextHop(destHash, cachedMac)) {
+                strat = (uint8_t)RoutingStrategy::STRAT_DIRECT;
+            } else if (dLat != 0.0f) {
+                strat = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
+            }
         }
 
         int fragCount = fragmentManager_->fragment(selfNode_.node_hash, destHash, pktId, flags, 
-                                                  (uint8_t)Priority::PRIO_LOW, strat, dLat, dLon, 
+                                                  (uint8_t)Priority::PRIO_LOW, strat, dLat, dLon, sourceDist,
                                                   config_.ttlDefault, data, len, fragments, 32);
         if (fragCount <= 0) { delete[] fragments; return false; }
         for (int i = 0; i < fragCount; i++) enqueueOutgoing(&ctx_, fragments[i]);
@@ -182,15 +192,22 @@ bool Mesh::sendUDP(const uint8_t* destHash, const uint8_t* data, size_t len, boo
     const Node* n = nodeRegistry_->findByHash(destHash);
     if (n) {
         pkt.header.dest_lat = n->lat; pkt.header.dest_lon = n->lon;
+        if (selfNode_.hasLocation()) {
+            pkt.header.source_dist = DirectionalRouter::distanceM(selfNode_.lat, selfNode_.lon, n->lat, n->lon);
+        }
     }
 
+    bool isBroadcast = true;
+    for (int i=0; i<16; i++) { if (destHash[i] != 0) { isBroadcast = false; break; } }
+
     uint8_t cachedMac[6];
-    if (routeCache_->lookupNextHop(destHash, cachedMac)) {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_DIRECT;
-    } else if (n && n->hasLocation()) {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
-    } else {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_BROADCAST;
+    pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_BROADCAST;
+    if (!isBroadcast) {
+        if (routeCache_->lookupNextHop(destHash, cachedMac)) {
+            pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_DIRECT;
+        } else if (n && n->hasLocation()) {
+            pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
+        }
     }
     
     memcpy(pkt.payload, data, (len > MAX_SINGLE_PAYLOAD ? MAX_SINGLE_PAYLOAD : len));
@@ -220,15 +237,22 @@ MeshResponse Mesh::sendTCP(const uint8_t* destHash, const uint8_t* data, size_t 
     const Node* n = nodeRegistry_->findByHash(destHash);
     if (n) {
         pkt.header.dest_lat = n->lat; pkt.header.dest_lon = n->lon;
+        if (selfNode_.hasLocation()) {
+            pkt.header.source_dist = DirectionalRouter::distanceM(selfNode_.lat, selfNode_.lon, n->lat, n->lon);
+        }
     }
 
+    bool isBroadcast = true;
+    for (int i=0; i<16; i++) { if (destHash[i] != 0) { isBroadcast = false; break; } }
+
     uint8_t cachedMac[6];
-    if (routeCache_->lookupNextHop(destHash, cachedMac)) {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_DIRECT;
-    } else if (n && n->hasLocation()) {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
-    } else {
-        pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_BROADCAST;
+    pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_BROADCAST;
+    if (!isBroadcast) {
+        if (routeCache_->lookupNextHop(destHash, cachedMac)) {
+            pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_DIRECT;
+        } else if (n && n->hasLocation()) {
+            pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
+        }
     }
 
     memcpy(pkt.payload, data, len);
@@ -255,6 +279,9 @@ bool Mesh::sendGeo(float lat, float lon, const uint8_t* data, size_t len, bool a
 
     pkt.header.dest_lat = lat;
     pkt.header.dest_lon = lon;
+    if (selfNode_.hasLocation()) {
+        pkt.header.source_dist = DirectionalRouter::distanceM(selfNode_.lat, selfNode_.lon, lat, lon);
+    }
     pkt.header.routing_strategy = (uint8_t)RoutingStrategy::STRAT_GEO_FLOOD;
 
     memcpy(pkt.payload, data, (len > MAX_SINGLE_PAYLOAD ? MAX_SINGLE_PAYLOAD : len));
@@ -354,6 +381,26 @@ void Mesh::onMeshError(ErrorHandler handler) {
     eventBus_.subscribe(MeshEventType::MESH_ERROR, [handler](const MeshEvent& ev, void*) {
         handler(ev.errorData.error_code);
     }, nullptr);
+}
+
+// ---- Peer Lookup Utilities ----
+
+int Mesh::getNodes(Node* outArr, int maxOut) {
+    if (!nodeRegistry_) return 0;
+    return nodeRegistry_->getAll(outArr, maxOut);
+}
+
+bool Mesh::getNodeHash(int index, uint8_t outHash[16]) {
+    if (!nodeRegistry_) return false;
+    Node* buf = new Node[config_.maxPeers];
+    int cnt = nodeRegistry_->getAll(buf, config_.maxPeers);
+    if (index < 0 || index >= cnt) {
+        delete[] buf;
+        return false;
+    }
+    memcpy(outHash, buf[index].node_hash, 16);
+    delete[] buf;
+    return true;
 }
 
 void Mesh::setupDefaultEventHandlers() {

@@ -135,13 +135,33 @@ meshNode.init(cfg);
 
 | Property | Default | Description |
 | :--- | :--- | :--- |
-| `maxPeers` | 20 | Capacity of the peer registry. |
+| `maxPeers` | 20 | Capacity of the peer registry. **Dynamic Memory Scaling:** The framework dynamically allocates RAM for the `NodeRegistry` and `RouteCache` based exactly on this number. **Hardware Eviction:** ESP-NOW has a hard physical limit of 20 hardware peers. If `maxPeers` > 20, the framework automatically uses an LRU (Least Recently Used) cache to invisibly swap hardware peers in and out of the ESP32 radio register just before sending, allowing you to route to hundreds of nodes while bypassing hardware limitations. |
 | `maxRetries` | 3 | Retries before triggering self-healing. |
 | `networkKey` | (Empty) | Key for SHA-256 integrity signatures. |
 | `ttlDefault` | 10 | Maximum hops allowed. |
-| `angleThreshold` | 90.0f | Flooding cone angle in degrees. |
-| `distanceTolerance` | 500.0f | Minimum progress (meters) to be a valid relay. |
+| `angleThreshold` | 90.0f | Directional cone width (degrees). The primary filter for geo-flood — only peers within this angle relative to the destination are considered. Lower = more targeted, higher = wider flood. Set to `180.0f` for fully omnidirectional (progress-only) mode. |
+| `geoProgressThresholdM` | 50.0f | A relay peer is accepted only if its distance to the destination is less than `(originalSender's distance - threshold)`.<br><br>• **Positive (default `50.0f`):** Allows up to 50m of backward routing. This is intentional for **physical obstacle avoidance** — e.g., a river or building forces the packet to route slightly backwards before finding a path around. Use with `angleThreshold = 270°` for full coverage around voids.<br>• **Zero:** No backward routing allowed from the original sender.<br>• **Negative:** Forces the first hop to immediately make a massive jump (e.g. -50 forces a 50m forward jump), which usually breaks the mesh.<br>• **⚠️ No GPS Fallback:** If the original sender didn't have a GPS lock (`source_dist` = 0), the framework automatically ignores this threshold and falls back to **strict forward progress relative to the current node**, ensuring safe error handling without breaking the mesh. |
+| `geoDestinationRadiusM` | 20.0f | Radius in meters within which a geo-packet is accepted as "arrived" and delivered to the app. Nodes outside this radius silently continue relaying the packet forward. |
 | `nodeTimeoutMs` | 30000 | Silence timeout before a node is pruned. |
+
+> **💡 Best Practices for Deployment:**
+> • **Avoid defaults if you know the terrain:** The default configuration (`angleThreshold = 270`, `geoProgressThresholdM = 50.0f`) is heavily biased towards robust "void routing" (getting around lakes/buildings). If you have a clear line of sight, lower the angle for better efficiency.
+> • **Max Peers:** Set `maxPeers = 10` for better memory stability in high-density areas unless you specifically need to track more nodes.
+> • **Node Spacing:** Always place nodes with a minimum distance of **70% of max radio range**. This provides optimal efficiency (less redundant overlaps) while keeping the link strong.
+> • **Topology:** A vertex/hexagonal geometry is the optimal placement pattern. However, in an emergency (like a disaster scenario), just "throwing them in range" will work fine with the robust default settings.
+
+### Hardware Binding
+
+If your node has physical GPS hardware, you must bind it to the mesh engine **before** calling `init()`. The framework includes a built-in `GPSLocationProvider`, but you can also pass any custom class that implements the `ILocationProvider` interface.
+
+```cpp
+// Initialize hardware GPS on pins 16 (RX) and 17 (TX)
+mesh::GPSLocationProvider gps(16, 17, 9600, 2);
+
+meshNode.setLocationProvider(&gps); // Bind it to the mesh BEFORE init
+meshNode.init();
+meshNode.start();
+```
 
 ---
 
@@ -205,6 +225,16 @@ enum class RoutingStrategy : uint8_t {
     STRAT_DIRECT    = 0,  // Point-to-point via cached MAC
     STRAT_GEO_FLOOD = 1,  // Progress-filtered directional flood
     STRAT_BROADCAST = 2   // Blind flood (discovery/fallback only)
+};
+```
+
+### `Priority` Enum
+```cpp
+// File: src/mesh_core/Packet.hpp
+enum class Priority : uint8_t {
+    PRIO_LOW    = 0,  // Background data, telemetry
+    PRIO_MEDIUM = 1,  // Standard messages, TCP requests
+    PRIO_HIGH   = 2   // ACKs, Control packets (Health, Discovery)
 };
 ```
 
@@ -284,7 +314,11 @@ meshNode.getEventBus().subscribe(mesh::MeshEventType::NODE_LOST,
 ### Mode 1: Manual Serial CLI
 Connect via Serial (115200 baud). Useful for live debugging.
 - `help` — Print all available commands.
-- `ls` — List all currently discovered nodes.
+- `ls` — List all discovered nodes. Displays the **full 16-byte node hash** (copy-paste ready), MAC address, GPS coordinates (6 decimal places), and seconds since last seen.
+  ```
+  [00] HASH:A1B2C3D4E5F60718293A4B5C6D7E8F00 | MAC:B0:CB:D8:C5:AE:34 | POS:(12.971600, 77.594600) | SEEN:5s
+  ```
+  > **Tip:** Copy the full `HASH:` value and use it directly with `msg` or `tcp` commands for targeted messaging.
 - `msg <hash> <text>` — Send a UDP message.
 - `tcp <hash> <text>` — Send a reliable TCP request.
 - `geo <lat> <lon> <text>` — Send a geo-targeted message.

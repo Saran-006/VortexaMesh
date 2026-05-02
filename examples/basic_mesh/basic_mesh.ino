@@ -47,8 +47,8 @@ void setup() {
     memcpy(cfg.networkKey, "MySecretMeshKey!", 16);
     cfg.networkKeyLen = 16;
     
-    meshNode.init(cfg);
     meshNode.setLocationProvider(&gps);
+    meshNode.init(cfg);
 
     // ---- Event: New Node Discovered ----
     meshNode.onNodeDiscovered([](const mesh::Node& node) {

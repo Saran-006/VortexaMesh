@@ -64,12 +64,16 @@ String MeshTerminal::execute(const String& input, bool quiet) {
 
 String MeshTerminal::handleLs(bool quiet) {
     String out = "--- DISCOVERED NODES ---\n";
-    Node nodes[MAX_NODES];
-    int count = node_.getNodeRegistry().getAll(nodes, MAX_NODES);
+    int maxNodes = node_.getNodeRegistry().capacity();
+    Node* nodes = new Node[maxNodes];
+    int count = node_.getNodeRegistry().getAll(nodes, maxNodes);
     for (int i = 0; i < count; i++) {
+        char hashStr[33] = {0};
+        for (int j = 0; j < 16; j++) sprintf(&hashStr[j * 2], "%02X", nodes[i].node_hash[j]);
+
         char buf[256];
-        snprintf(buf, sizeof(buf), "[%02d] HASH:%02X%02X%02X%02X | MAC:%02X:%02X:%02X:%02X:%02X:%02X | POS:(%.4f, %.4f) | SEEN:%lus\n",
-                      i, nodes[i].node_hash[0], nodes[i].node_hash[1], nodes[i].node_hash[2], nodes[i].node_hash[3],
+        snprintf(buf, sizeof(buf), "[%02d] HASH:%s | MAC:%02X:%02X:%02X:%02X:%02X:%02X | POS:(%.6f, %.6f) | SEEN:%lus\n",
+                      i, hashStr,
                       nodes[i].mac[0], nodes[i].mac[1], nodes[i].mac[2], nodes[i].mac[3], nodes[i].mac[4], nodes[i].mac[5],
                       nodes[i].lat, nodes[i].lon, (millis() - nodes[i].last_seen) / 1000);
         out += buf;
@@ -77,6 +81,7 @@ String MeshTerminal::handleLs(bool quiet) {
     if (count == 0) out += "No peers found yet.\n";
     out += "------------------------\n";
     if (!quiet) Serial.print(out);
+    delete[] nodes;
     return out;
 }
 

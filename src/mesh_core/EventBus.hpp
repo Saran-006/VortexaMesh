@@ -5,13 +5,14 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include <cstdint>
+#include <functional>
 
 namespace mesh {
 
 // Maximum registered event handlers
 static constexpr int MAX_EVENT_HANDLERS = 16;
 
-using EventHandler = void(*)(const MeshEvent& event, void* userCtx);
+using EventHandler = std::function<void(const MeshEvent& event, void* userCtx)>;
 
 class EventBus {
 public:

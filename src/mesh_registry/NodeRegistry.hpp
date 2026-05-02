@@ -7,11 +7,9 @@
 
 namespace mesh {
 
-static constexpr int MAX_NODES = 64;
-
 class NodeRegistry {
 public:
-    NodeRegistry();
+    explicit NodeRegistry(int maxNodes);
     ~NodeRegistry();
 
     // Add or update a node. Returns true if new.
@@ -29,6 +27,9 @@ public:
     // Get number of known nodes
     int count() const;
 
+    // Get max node capacity (config_.maxPeers)
+    int capacity() const;
+
     // Remove a node by MAC address (Self-Healing)
     void removeByMac(const uint8_t mac[6]);
 
@@ -36,7 +37,8 @@ public:
     int getAll(Node* outArr, int maxOut) const;
 
 private:
-    Node              nodes_[MAX_NODES];
+    Node*             nodes_;
+    int               maxNodes_;
     int               count_;
     SemaphoreHandle_t mutex_;
 };

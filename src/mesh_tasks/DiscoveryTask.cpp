@@ -28,6 +28,7 @@ void discoveryTaskFn(void* param) {
         memcpy(beacon.header.source_hash, ctx->selfNode->node_hash, 16);
         // dest_hash = all zeros → broadcast
         memset(beacon.header.dest_hash, 0, 16);
+        beacon.header.routing_strategy = static_cast<uint8_t>(RoutingStrategy::STRAT_BROADCAST);
 
         // Payload: [CTRL_DISCOVERY_BEACON(1)] [lat(4)] [lon(4)]
         beacon.payload[0] = CTRL_DISCOVERY_BEACON;

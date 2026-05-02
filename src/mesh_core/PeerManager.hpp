@@ -25,6 +25,7 @@ private:
     };
     PeerEntry          peers_[PEER_TABLE_MAX];
     int                count_;
+    int                evictIndex_;
     SemaphoreHandle_t  mutex_;
 };
 

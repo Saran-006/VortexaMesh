@@ -9,6 +9,8 @@
 #include "mesh_core/MeshContext.hpp"
 #include "mesh_core/RequestManager.hpp"
 
+#include "mesh_registry/NodeRegistry.hpp"
+
 namespace mesh {
 
 // Forward declarations
@@ -20,9 +22,6 @@ class FragmentManager;
 class Dispatcher;
 class RouteCache;
 class RequestManager;
-
-// Full include needed for MAX_NODES constant and getAll() method
-#include "mesh_registry/NodeRegistry.hpp"
 
 class Mesh {
 public:
@@ -37,6 +36,9 @@ public:
     void init();
     
     void start();
+
+    // Set a custom location provider (GPS, etc)
+    void setLocationProvider(ILocationProvider* provider) { locationProvider_ = provider; }
 
     // ---- Production API: Messaging (Direct & Typed) ----
     // Direct unicast UDP
@@ -82,17 +84,11 @@ public:
 
     // ---- Peer Lookup Utilities ----
     // Fill outArr with discovered peers. Returns count.
-    int getNodes(Node* outArr, int maxOut) { return nodeRegistry_->getAll(outArr, maxOut); }
+    int getNodes(Node* outArr, int maxOut);
 
     // Get the hash of a specific peer by index (0 = first discovered).
     // Returns true if index is valid. Use getNodes() count to know bounds.
-    bool getNodeHash(int index, uint8_t outHash[16]) {
-        Node buf[MAX_NODES];
-        int cnt = nodeRegistry_->getAll(buf, MAX_NODES);
-        if (index < 0 || index >= cnt) return false;
-        memcpy(outHash, buf[index].node_hash, 16);
-        return true;
-    }
+    bool getNodeHash(int index, uint8_t outHash[16]);
 
     // ---- Accessors ----
     MeshContext*  getContext()  { return &ctx_; }
