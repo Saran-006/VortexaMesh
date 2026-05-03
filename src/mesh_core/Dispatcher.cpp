@@ -59,6 +59,11 @@ void dispatcherTaskFn(void* param) {
 }
 
 void Dispatcher::processPacket(Packet& pkt, bool isDuplicate) {
+    // 0. Filter out our own packets (loopback prevention)
+    if (memcmp(pkt.header.source_hash, ctx_->selfNode->node_hash, 16) == 0) {
+        return;
+    }
+
     // --- ACK packets: always consume, never forward ---
     if (pkt.isAck()) {
         if (!isDuplicate) handleAck(pkt);
@@ -116,8 +121,8 @@ void Dispatcher::processPacket(Packet& pkt, bool isDuplicate) {
         }
     }
 
-    // --- Not exclusively for us, or it's a broadcast/geo-flood: forward only if NOT a duplicate ---
-    if (!isDuplicate) {
+    // --- Not exclusively for us, or it's a broadcast/geo-flood: forward only if NOT a duplicate AND NOT a control packet ---
+    if (!isDuplicate && !pkt.isControl()) {
         forwardPacket(pkt);
     }
 }
@@ -157,8 +162,9 @@ bool Dispatcher::isForUs(const Packet& pkt) const {
             return false;
         }
         
-        // Fallback for other zero-hash cases
-        return true; 
+        // Fallback for other zero-hash cases: only accept if it's a broadcast or we are in the flood zone.
+        // If it's none of the above, it's not for us.
+        return false; 
     }
     return memcmp(pkt.header.dest_hash, ctx_->selfNode->node_hash, 16) == 0;
 }

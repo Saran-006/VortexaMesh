@@ -294,7 +294,9 @@ bool Mesh::sendGeo(float lat, float lon, const uint8_t* data, size_t len, bool a
 void Mesh::onPacketReceived(PacketHandler handler) {
     hasUserPacketHandler = true;
     eventBus_.subscribe(MeshEventType::PACKET_RECEIVED, [handler](const MeshEvent& ev, void*) {
-        handler(ev.packetData.packet, ev.packetData.sender_mac);
+        if (ev.packetData.isForUs) {
+            handler(ev.packetData.packet, ev.packetData.sender_mac);
+        }
     }, nullptr);
 }
 
